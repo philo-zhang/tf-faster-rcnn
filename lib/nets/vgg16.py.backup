@@ -19,7 +19,7 @@ from model.config import cfg
 
 class vgg16(Network):
   def __init__(self, batch_size=1):
-    Network.__init__(self, batch_size=batch_size, feat_stride=4)
+    Network.__init__(self, batch_size=batch_size)
     self._arch = 'vgg16'
 
   def build_network(self, sess, is_training=True):
@@ -41,14 +41,14 @@ class vgg16(Network):
       net = slim.max_pool2d(net, [2, 2], padding='SAME', scope='pool2')
       net = slim.repeat(net, 3, slim.conv2d, 256, [3, 3],
                         trainable=is_training, scope='conv3')
-      #net = slim.max_pool2d(net, [2, 2], padding='SAME', scope='pool3')
-      #net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3],
-      #                  trainable=is_training, scope='conv4')
-      #net = slim.max_pool2d(net, [2, 2], padding='SAME', scope='pool4')
-      #net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3],
-      #                  trainable=is_training, scope='conv5')
+      net = slim.max_pool2d(net, [2, 2], padding='SAME', scope='pool3')
+      net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3],
+                        trainable=is_training, scope='conv4')
+      net = slim.max_pool2d(net, [2, 2], padding='SAME', scope='pool4')
+      net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3],
+                        trainable=is_training, scope='conv5')
       self._act_summaries.append(net)
-      #self._layers['conv5_3'] = net
+      self._layers['conv5_3'] = net
       # build the anchors for the image
       self._anchor_component()
 
@@ -81,15 +81,15 @@ class vgg16(Network):
 
       # rcnn
       if cfg.POOLING_MODE == 'crop':
-        pool5 = self._crop_pool_layer(net, "pool5")
+        pool5 = self._crop_pool_layer(net, rois, "pool5")
       else:
         raise NotImplementedError
 
       pool5_flat = slim.flatten(pool5, scope='flatten')
-      fc6 = slim.fully_connected(pool5_flat, 1024, scope='fc6')
+      fc6 = slim.fully_connected(pool5_flat, 4096, scope='fc6')
       if is_training:
         fc6 = slim.dropout(fc6, scope='dropout6')
-      fc7 = slim.fully_connected(fc6, 512, scope='fc7')
+      fc7 = slim.fully_connected(fc6, 4096, scope='fc7')
       if is_training:
         fc7 = slim.dropout(fc7, scope='dropout7')
       cls_score = slim.fully_connected(fc7, self._num_classes, weights_initializer=initializer,

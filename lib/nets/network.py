@@ -24,9 +24,9 @@ from model.config import cfg
 
 
 class Network(object):
-  def __init__(self, batch_size=1):
-    self._feat_stride = [16, ]
-    self._feat_compress = [1. / 16., ]
+  def __init__(self, batch_size=1, feat_stride=16.0):
+    self._feat_stride = [feat_stride, ]
+    self._feat_compress = [1. / feat_stride, ]
     self._batch_size = batch_size
     self._predictions = {}
     self._losses = {}
@@ -57,7 +57,7 @@ class Network(object):
     assert image.get_shape()[0] == 1
     boxes = tf.expand_dims(boxes, dim=0)
     image = tf.image.draw_bounding_boxes(image, boxes)
-    
+
     return tf.summary.image('ground_truth', image)
 
   def _add_act_summary(self, tensor):
@@ -119,19 +119,19 @@ class Network(object):
       return tf.image.roi_pooling(bootom, rois,
                                   pooled_height=cfg.POOLING_SIZE,
                                   pooled_width=cfg.POOLING_SIZE,
-                                  spatial_scale=1. / 16.)[0]
+                                  spatial_scale=1. / self._feat_stride)[0]
 
-  def _crop_pool_layer(self, bottom, rois, name):
+  def _crop_pool_layer(self, bottom, name):
     with tf.variable_scope(name) as scope:
-      batch_ids = tf.squeeze(tf.slice(rois, [0, 0], [-1, 1], name="batch_id"), [1])
+      batch_ids = tf.squeeze(tf.slice(self._rois, [0, 0], [-1, 1], name="batch_id"), [1])
       # Get the normalized coordinates of bboxes
       bottom_shape = tf.shape(bottom)
       height = (tf.to_float(bottom_shape[1]) - 1.) * np.float32(self._feat_stride[0])
       width = (tf.to_float(bottom_shape[2]) - 1.) * np.float32(self._feat_stride[0])
-      x1 = tf.slice(rois, [0, 1], [-1, 1], name="x1") / width
-      y1 = tf.slice(rois, [0, 2], [-1, 1], name="y1") / height
-      x2 = tf.slice(rois, [0, 3], [-1, 1], name="x2") / width
-      y2 = tf.slice(rois, [0, 4], [-1, 1], name="y2") / height
+      x1 = tf.slice(self._rois, [0, 1], [-1, 1], name="x1") / width
+      y1 = tf.slice(self._rois, [0, 2], [-1, 1], name="y1") / height
+      x2 = tf.slice(self._rois, [0, 3], [-1, 1], name="x2") / width
+      y2 = tf.slice(self._rois, [0, 4], [-1, 1], name="y2") / height
       # Won't be backpropagated to rois anyway, but to save time
       bboxes = tf.stop_gradient(tf.concat([y1, x1, y2, x2], axis=1))
       pre_pool_size = cfg.POOLING_SIZE * 2
@@ -273,6 +273,7 @@ class Network(object):
     self._image = tf.placeholder(tf.float32, shape=[self._batch_size, None, None, 3])
     self._im_info = tf.placeholder(tf.float32, shape=[self._batch_size, 3])
     self._gt_boxes = tf.placeholder(tf.float32, shape=[None, 5])
+    self._rois = tf.placeholder(tf.float32, shape=[None, 5])
     self._tag = tag
 
     self._num_classes = num_classes
@@ -295,8 +296,8 @@ class Network(object):
     else:
       biases_regularizer = tf.no_regularizer
 
-    with arg_scope([slim.conv2d, slim.fully_connected], biases_regularizer=biases_regularizer, 
-                    biases_initializer=tf.constant_initializer(0.0)): 
+    with arg_scope([slim.conv2d, slim.fully_connected], biases_regularizer=biases_regularizer,
+                    biases_initializer=tf.constant_initializer(0.0)):
       rois, cls_prob, bbox_pred = self.build_network(sess, training)
 
     layers_to_output = {'rois': rois}
@@ -352,6 +353,10 @@ class Network(object):
   def get_summary(self, sess, blobs):
     feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
                  self._gt_boxes: blobs['gt_boxes']}
+    rois = sess.run(self._predictions['rois'], feed_dict=feed_dict)
+
+    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
+            self._gt_boxes: blobs['gt_boxes'], self._rois: rois}
     summary = sess.run(self._summary_op_val, feed_dict=feed_dict)
 
     return summary
@@ -359,6 +364,10 @@ class Network(object):
   def train_step(self, sess, blobs, train_op):
     feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
                  self._gt_boxes: blobs['gt_boxes']}
+    rois = sess.run(self._predictions['rois'], feed_dict=feed_dict)
+
+    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
+            self._gt_boxes: blobs['gt_boxes'], self._rois: rois}
     rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, _ = sess.run([self._losses["rpn_cross_entropy"],
                                                                         self._losses['rpn_loss_box'],
                                                                         self._losses['cross_entropy'],
@@ -371,6 +380,10 @@ class Network(object):
   def train_step_with_summary(self, sess, blobs, train_op):
     feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
                  self._gt_boxes: blobs['gt_boxes']}
+    rois = sess.run(self._predictions['rois'], feed_dict=feed_dict)
+
+    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
+            self._gt_boxes: blobs['gt_boxes'], self._rois: rois}
     rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, summary, _ = sess.run([self._losses["rpn_cross_entropy"],
                                                                                  self._losses['rpn_loss_box'],
                                                                                  self._losses['cross_entropy'],
