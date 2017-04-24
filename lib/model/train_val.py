@@ -175,6 +175,24 @@ class SolverWrapper(object):
 
       #restorer = tf.train.Saver(variables_to_restore)
       #restorer.restore(sess, self.pretrained_model)
+      var_to_dic = {}
+      for v in variables:
+          var_to_dic[v.name] = v
+      params = np.load(self.pretrained_model)
+      var_dict = params.item(0)
+      for key in var_dict.keys():
+        if key == 'conv10':
+            continue
+        splits = key.split('_')
+        if len(splits) > 1:
+          var_name = 'squeeze/' + splits[0] + '/' + splits[1]
+        else:
+          var_name = 'squeeze/' + key
+        sess.run(var_to_dic[var_name+'/weights:0'].assign(var_dict[key]['weights']))
+        sess.run(var_to_dic[var_name+'/biases:0'].assign(var_dict[key]['biases']))
+        print ("converted: ", var_name)
+
+
       print('Loaded.')
       sess.run(tf.assign(lr, cfg.TRAIN.LEARNING_RATE))
       # A temporary solution to fix the vgg16 issue from conv weights to fc weights
